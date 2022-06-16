@@ -1,97 +1,187 @@
+/* eslint-disable max-statements */
+/* eslint-disable max-lines-per-function */
 "use strict";
 
-const HTML_START = `<!DOCTYPE html>
+const HTTP = require('http');
+const URL = require('url').URL;
+const QUERYSTRING = require('querystring');
+const ROUTER = require('router');
+const FINALHANDLER = require('finalhandler');
+const SERVESTATIC = require('serve-static');
+const PORT = 3000;
+const HANDLEBARS = require('handlebars');
+const APR = 5;
+
+const LOAN_OFFER_SOURCE = `
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta char-set="utf-8" />
+    <meta charset="utf-8">
     <title>Loan Calculator</title>
-    <style type="text/css">
-      body {
-        background: rgba(250, 250, 250);
-        font-family: sans-serif;
-        color: rgb(50, 50, 50);
-      }
-
-      article {
-        width: 100%;
-        max-width: 40rem;
-        margin: 0 auto;
-        padding: 1rem 2rem;
-      }
-
-      h1 {
-        font-size: 2.5rem;
-        text-align: center;
-      }
-
-      table {
-        font-size: 2rem;
-      }
-
-      th {
-        text-align: right;
-      }
-
-      a {
-        font-size: 75%;
-      }
-
-      td {
-        padding: 5px;
-      }
-    </style>
+    <link rel="stylesheet" href="/assets/css/styles.css">
   </head>
   <body>
     <article>
       <h1>Loan Calculator</h1>
       <table>
-        <tbody>`;
+        <tbody>
+          <tr>
+            <th>Amount:</th>
+            <td>
+              <a href='/loan-offer?amount={{amountDecrement}}&duration={{duration}}'>- $100</a>
+            </td>
+            <td>$ {{amount}}</td>
+            <td>
+              <a href='/loan-offer?amount={{amountIncrement}}&duration={{duration}}'>+ $100</a>
+            </td>
+          </tr>
+          <tr>
+            <th>Duration:</th>
+            <td>
+              <a href='/loan-offer?amount={{amount}}&duration={{durationDecrement}}'>- 1 year</a>
+            </td>
+            <td>{{duration}} years</td>
+            <td>
+              <a href='/loan-offer?amount={{amount}}&duration={{durationIncrement}}'>+ 1 year</a>
+            </td>
+          </tr>
+          <tr>
+            <th>APR:</th>
+            <td colspan='3'>{{apr}}%</td>
+          </tr>
+          <tr>
+            <th>Monthly payment:</th>
+            <td colspan='3'>$ {{payment}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </article>
+  </body>
+</html>
+`;
 
-const HTML_END = `</tbody></table></article></body></html>`;
+const LOAN_FORM_SOURCE = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Loan Calculator</title>
+    <link rel="stylesheet" href="/assets/css/styles.css">
+  </head>
+  <body>
+    <article>
+      <h1>Loan Calculator</h1>
+      <form action="/loan-offer" method="post">
+        <p>All loans are offered at an APR of {{apr}}%.</p>
+        <label for="amount">How much do you want to borrow (in dollars)?</label>
+        <input type="number" name="amount" value="">
+        <label for="amount">How much time do you want to pay back your loan?</label>
+        <input type="number" name="duration" value="">
+        <input type="submit" name="" value="Get loan offer!">
+      </form>
+    </article>
+  </body>
+</html>
+`;
 
-const HTTP = require('http');
-const URL = require('url').URL;
-const PORT = 3000;
+const LOAN_OFFER_TEMPLATE = HANDLEBARS.compile(LOAN_OFFER_SOURCE);
+const LOAN_FORM_TEMPLATE = HANDLEBARS.compile(LOAN_FORM_SOURCE);
+
+function render(template, data) {
+  let html = template(data);
+  return html;
+}
+
+function parseFormData(request, callback) {
+  let body = '';
+    request.on('data', chunk => {
+      body += chunk.toString();
+    });
+    request.on('end', () => {
+      let data = QUERYSTRING.parse(body);
+      data.amount = Number(data.amount);
+      data.duration = Number(data.duration);
+      callback(data);
+    });
+}
 
 function getParams(path) {
   const myURL = new URL(path, `http://localhost:${PORT}`);
-  return myURL.searchParams;
+  let searchParams = myURL.searchParams;
+  let data = {};
+  data.amount = Number(searchParams.get('amount'));
+  data.duration = Number(searchParams.get('duration'));
+
+  return data;
 }
 
-function calculateLoanAmount(amount, duration, APR) {
-  let monthlyInterest = ((1 + APR) ** (1 / 12)) - 1;
-  return (amount / ((1 - ((1 + monthlyInterest) ** (-1 * duration))) / monthlyInterest)).toFixed(2);
+function getPathname(path) {
+  const myURL = new URL(path, `http://localhost:${PORT}`);
+  return myURL.pathname;
 }
 
-function createLoanOffer(params) {
-  const APR = 0.05;
-  let amount = Number(params.get('amount'));
-  let duration = Number(params.get('duration')) * 12;
-  let monthlyPayment = calculateLoanAmount(amount, duration, APR);
+function calculateLoan(amount, duration, apr) {
+  let annualInterestRate = apr / 100;
+  let monthlyInterestRate = annualInterestRate / 12;
+  let months = Number(duration) * 12;
+  let payment = amount *
+          (monthlyInterestRate /
+          (1 - Math.pow((1 + monthlyInterestRate),(-months))));
 
-  const HTML_MIDDLE = `<tr><th>Amount:</th><td><a href="/?amount=${amount - 100}&duration=${duration / 12}">- $100</a><td>$${amount}</td><td><a href="/?amount=${amount + 100}&duration=${duration / 12}">+ $100</a></td></tr>
-    <tr><th>Duration:</th><td><a href="/?amount=${amount}&duration=${(duration / 12) - 1}">- 1 year</a></td><td>${duration / 12} years</td><td><a href="/?amount=${amount}&duration=${(duration / 12) + 1}">+ 1 year</a></td></tr>
-    <tr><th>APR:</th><td colspan="3">${APR * 100}%</td></tr>
-    <tr><th>Monthly Payment:</th><td colspan="3">$${monthlyPayment}</td></tr>`;
-
-  return `${HTML_START}${HTML_MIDDLE}${HTML_END}`;
+  return payment.toFixed(2);
 }
 
-const SERVER = HTTP.createServer((req, res) => {
-  let path = req.url;
+function createLoanOffer(data) {
+  data.amountIncrement = data.amount + 100;
+  data.amountDecrement = data.amount - 100;
+  data.durationIncrement = data.duration + 1;
+  data.durationDecrement = data.duration - 1;
+  data.apr = APR;
+  data.payment = calculateLoan(data.amount, data.duration, APR);
 
-  if (path === '/favicon.ico') {
-    res.statusCode = 404;
-    res.end();
+  return data;
+}
 
-  } else {
-    let content = createLoanOffer(getParams(path));
+let router = ROUTER();
+router.use(SERVESTATIC('public'));
+
+router.get('/', function (req, res) {
+  let content = render(LOAN_FORM_TEMPLATE, {apr: APR});
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/html');
+  res.write(`${content}\n`);
+  res.end();
+});
+
+router.get('/loan-offer', function (req, res) {
+  let data = createLoanOffer(getParams(req.url));
+  let content = render(LOAN_OFFER_TEMPLATE, data);
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/html');
+  res.write(`${content}\n`);
+  res.end();
+});
+
+router.post('/loan-offer', function (req, res) {
+  parseFormData(req, parsedData => {
+    let data = createLoanOffer(parsedData);
+    let content = render(LOAN_OFFER_TEMPLATE, data);
 
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/html');
     res.write(`${content}\n`);
     res.end();
-  }
+  });
+});
+
+router.get('*', function(req, res) {
+  res.statusCode = 404;
+  res.end();
+});
+
+const SERVER = HTTP.createServer((req, res) => {
+  router(req, res, FINALHANDLER(req, res));
 });
 
 SERVER.listen(PORT, () => {
