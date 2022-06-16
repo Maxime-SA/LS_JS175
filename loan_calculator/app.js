@@ -114,11 +114,6 @@ function getParams(path) {
   return data;
 }
 
-function getPathname(path) {
-  const myURL = new URL(path, `http://localhost:${PORT}`);
-  return myURL.pathname;
-}
-
 function calculateLoan(amount, duration, apr) {
   let annualInterestRate = apr / 100;
   let monthlyInterestRate = annualInterestRate / 12;
