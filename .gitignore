@@ -5,3 +5,4 @@ package.json
 .eslintrc.yml
 jest.config.js
 coverage/
+session-store.db
